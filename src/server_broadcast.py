@@ -266,6 +266,68 @@ def video_send_loop(fs, pm_video, frame_queue, stop_event):
         for peer in peers:
             executor.submit(fs.send_to, img_bytes, peer)
 
+def control_plane(pm_video, pm_audio, stop_event):
+    """
+    Protocol (strings on CTRL_PORT):
+      JOIN <video_port> / HEARTBEAT <video_port> / LEAVE <video_port>
+      AJOIN <audio_port> / AHEARTBEAT <audio_port> / ALEAVE <audio_port>
+      WHO                -> server replies with 'PEERS ip:port ip:port ...'
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("0.0.0.0", CTRL_PORT))
+    sock.settimeout(0.5)
+    print(f"[CTRL] Listening on port {CTRL_PORT}")
+    while not stop_event.is_set():
+        try:
+            data, (ip, src_port) = sock.recvfrom(1024)
+        except socket.timeout:
+            continue
+        msg = data.decode(errors="ignore").strip().split()
+        if not msg:
+            continue
+        cmd = msg[0]
+
+        # Roster request
+        if cmd == "WHO":
+            peers = pm_video.active()
+            payload = "PEERS " + " ".join([f"{p_ip}:{p_port}" for (p_ip, p_port) in peers])
+            try:
+                sock.sendto(payload.encode(), (ip, src_port))
+            except Exception:
+                pass
+            continue
+
+        # Video control messages
+        if cmd in {"JOIN", "HEARTBEAT", "LEAVE"} and len(msg) == 2:
+            try:
+                port = int(msg[1])
+            except ValueError:
+                continue
+            if cmd in {"JOIN", "HEARTBEAT"}:
+                pm_video.upsert(ip, port)
+                if cmd == "JOIN":
+                    print(f"[CTRL] JOIN from {ip}:{port}")
+            elif cmd == "LEAVE":
+                pm_video.remove(ip, port)
+                print(f"[CTRL] LEAVE from {ip}:{port}")
+            continue
+
+        # Audio control messages
+        if cmd in {"AJOIN", "AHEARTBEAT", "ALEAVE"} and len(msg) == 2:
+            try:
+                port = int(msg[1])
+            except ValueError:
+                continue
+            if cmd in {"AJOIN", "AHEARTBEAT"}:
+                pm_audio.upsert(ip, port)
+                if cmd == "AJOIN":
+                    print(f"[CTRL] AJOIN (audio) from {ip}:{port}")
+            elif cmd == "ALEAVE":
+                pm_audio.remove(ip, port)
+                print(f"[CTRL] ALEAVE (audio) from {ip}:{port}")
+            continue
+    sock.close()
+
 # ====================== Main ======================
 
 def main():
