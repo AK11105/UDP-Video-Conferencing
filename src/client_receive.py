@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from __future__ import division
-import cv2, numpy as np, socket, struct, math, threading, queue, time, argparse, sounddevice as sd
+import cv2, numpy as np, socket, struct, math, threading, queue, time, argparse
+import sounddevice as sd
 from .shared.constants import *
 
 # =============== Video helpers ===============
@@ -81,12 +82,9 @@ def audio_capture_uplink(server_host, stop_event):
         nonlocal seq
         if stop_event.is_set():
             raise sd.CallbackStop
-        if status:  # audio glitches etc.
-            pass
-        # indata is float32 [-1,1]; convert to int16
+        # indata float32 [-1,1] -> int16
         pcm = np.clip(indata[:, 0] * 32767.0, -32768, 32767).astype(np.int16)
         if pcm.shape[0] != AUDIO_SAMPLES:
-            # drop partial blocks
             return
         ts_ns = time.time_ns()
         header = struct.pack("!QI", ts_ns, seq)
@@ -120,46 +118,48 @@ def audio_downlink_receiver_bind(preferred_port):
 
 def audio_playback_loop(sock, stop_event):
     """
-    Receive mixed PCM frames and play. Packet = [uint64 ts_ns][uint32 seq][PCM int16 * AUDIO_SAMPLES]
+    Receive mixed PCM frames and play them continuously through a single OutputStream.
+    Packet = [uint64 ts_ns][uint32 seq][PCM int16 * AUDIO_SAMPLES]
     """
-    header_size = 8 + 4
-    outq = queue.Queue(maxsize=32)
+    sock.settimeout(0.5)
+    header_size = 8 + 4  # ts_ns + seq
+    outq = queue.Queue(maxsize=64)
 
+    # Reader thread: fill queue with payloads
     def net_reader():
         while not stop_event.is_set():
             try:
                 pkt, _ = sock.recvfrom(4096)
+            except socket.timeout:
+                continue
             except:
                 continue
-            if len(pkt) < header_size:  # malformed
+            if len(pkt) < header_size:
                 continue
             payload = pkt[header_size:]
             if len(payload) != AUDIO_SAMPLES * 2:
                 continue
-            # enqueue bytes
             try:
                 outq.put_nowait(payload)
             except queue.Full:
+                # drop if we're lagging
                 pass
 
-    t = threading.Thread(target=net_reader, daemon=True)
-    t.start()
+    threading.Thread(target=net_reader, daemon=True).start()
 
-    def audiogen():
-        while not stop_event.is_set():
-            try:
-                buf = outq.get(timeout=0.1)
-            except queue.Empty:
-                # play silence if nothing
-                yield np.zeros((AUDIO_SAMPLES,), dtype=np.int16)
-                continue
-            yield np.frombuffer(buf, dtype=np.int16)
+    silence = np.zeros((AUDIO_SAMPLES,), dtype=np.int16)
 
     try:
         with sd.OutputStream(samplerate=AUDIO_RATE, channels=1, dtype='int16',
-                             blocksize=AUDIO_SAMPLES):
-            for block in audiogen():
-                sd.play(block, samplerate=AUDIO_RATE, blocking=True)
+                             blocksize=AUDIO_SAMPLES) as stream:
+            while not stop_event.is_set():
+                try:
+                    buf = outq.get(timeout=0.2)
+                    block = np.frombuffer(buf, dtype=np.int16)
+                except queue.Empty:
+                    block = silence
+                # Write directly to the persistent stream (no sd.play here)
+                stream.write(block)
     finally:
         pass
 
