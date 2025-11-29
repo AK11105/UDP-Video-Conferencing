@@ -1,0 +1,319 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 220 20% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+
+    --primary: 190 95% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 92%;
+    --secondary-foreground: 220 20% 20%;
+
+    --muted: 220 15% 94%;
+    --muted-foreground: 220 10% 50%;
+
+    --accent: 190 95% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 190 95% 45%;
+
+    --radius: 0.75rem;
+
+    /* Protocol Colors */
+    --udp: 190 95% 50%;
+    --udp-glow: 190 95% 60%;
+    --tcp: 160 84% 45%;
+    --tcp-glow: 160 84% 55%;
+    --sctp: 38 95% 55%;
+    --sctp-glow: 38 95% 65%;
+
+    /* Chart Colors */
+    --chart-1: 190 95% 50%;
+    --chart-2: 160 84% 45%;
+    --chart-3: 38 95% 55%;
+    --chart-4: 280 70% 60%;
+    --chart-5: 340 75% 55%;
+
+    /* Semantic Colors */
+    --success: 160 84% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 95% 55%;
+    --warning-foreground: 0 0% 10%;
+    --info: 190 95% 50%;
+    --info-foreground: 0 0% 100%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(190 95% 45%), hsl(210 95% 55%));
+    --gradient-udp: linear-gradient(135deg, hsl(190 95% 50%), hsl(200 95% 60%));
+    --gradient-tcp: linear-gradient(135deg, hsl(160 84% 45%), hsl(140 84% 55%));
+    --gradient-sctp: linear-gradient(135deg, hsl(38 95% 55%), hsl(28 95% 60%));
+    --gradient-card: linear-gradient(135deg, hsl(220 20% 98%), hsl(220 20% 96%));
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px hsl(220 20% 10% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(220 20% 10% / 0.1);
+    --shadow-lg: 0 10px 15px -3px hsl(220 20% 10% / 0.1);
+    --shadow-glow-udp: 0 0 20px hsl(190 95% 50% / 0.3);
+    --shadow-glow-tcp: 0 0 20px hsl(160 84% 45% / 0.3);
+    --shadow-glow-sctp: 0 0 20px hsl(38 95% 55% / 0.3);
+
+    --sidebar-background: 220 20% 95%;
+    --sidebar-foreground: 220 20% 20%;
+    --sidebar-primary: 190 95% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 15% 90%;
+    --sidebar-accent-foreground: 220 20% 10%;
+    --sidebar-border: 220 15% 88%;
+    --sidebar-ring: 190 95% 45%;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 190 95% 50%;
+    --primary-foreground: 222 47% 8%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 190 95% 50%;
+    --accent-foreground: 222 47% 8%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 190 95% 50%;
+
+    /* Protocol Colors - Brighter for dark mode */
+    --udp: 190 95% 55%;
+    --udp-glow: 190 95% 65%;
+    --tcp: 160 84% 50%;
+    --tcp-glow: 160 84% 60%;
+    --sctp: 38 95% 60%;
+    --sctp-glow: 38 95% 70%;
+
+    /* Chart Colors */
+    --chart-1: 190 95% 55%;
+    --chart-2: 160 84% 50%;
+    --chart-3: 38 95% 60%;
+    --chart-4: 280 70% 65%;
+    --chart-5: 340 75% 60%;
+
+    /* Semantic Colors */
+    --success: 160 84% 50%;
+    --success-foreground: 222 47% 8%;
+    --warning: 38 95% 60%;
+    --warning-foreground: 222 47% 8%;
+    --info: 190 95% 55%;
+    --info-foreground: 222 47% 8%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(190 95% 50%), hsl(210 95% 60%));
+    --gradient-udp: linear-gradient(135deg, hsl(190 95% 55%), hsl(200 95% 65%));
+    --gradient-tcp: linear-gradient(135deg, hsl(160 84% 50%), hsl(140 84% 60%));
+    --gradient-sctp: linear-gradient(135deg, hsl(38 95% 60%), hsl(28 95% 65%));
+    --gradient-card: linear-gradient(135deg, hsl(222 47% 12%), hsl(222 47% 10%));
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.3);
+    --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.4);
+    --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.5);
+    --shadow-glow-udp: 0 0 30px hsl(190 95% 55% / 0.4);
+    --shadow-glow-tcp: 0 0 30px hsl(160 84% 50% / 0.4);
+    --shadow-glow-sctp: 0 0 30px hsl(38 95% 60% / 0.4);
+
+    --sidebar-background: 222 47% 9%;
+    --sidebar-foreground: 210 40% 95%;
+    --sidebar-primary: 190 95% 50%;
+    --sidebar-primary-foreground: 222 47% 8%;
+    --sidebar-accent: 217 33% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 18%;
+    --sidebar-ring: 190 95% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50 shadow-lg;
+  }
+
+  .metric-card {
+    @apply glass-card rounded-xl p-4 transition-all duration-300 hover:shadow-xl hover:scale-[1.02];
+  }
+
+  .metric-card-udp {
+    @apply metric-card hover:border-udp/50;
+  }
+
+  .metric-card-tcp {
+    @apply metric-card hover:border-tcp/50;
+  }
+
+  .metric-card-sctp {
+    @apply metric-card hover:border-sctp/50;
+  }
+
+  .sidebar-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200;
+    @apply text-muted-foreground hover:text-foreground hover:bg-accent/50;
+  }
+
+  .sidebar-item-active {
+    @apply bg-primary/10 text-primary border-l-2 border-primary;
+  }
+
+  .chart-container {
+    @apply glass-card rounded-xl p-4;
+  }
+
+  .data-grid {
+    @apply grid gap-4;
+  }
+
+  .pulse-dot {
+    @apply w-2 h-2 rounded-full animate-pulse;
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent;
+  }
+
+  .protocol-badge {
+    @apply px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide;
+  }
+
+  .protocol-badge-udp {
+    @apply protocol-badge bg-udp/20 text-udp;
+  }
+
+  .protocol-badge-tcp {
+    @apply protocol-badge bg-tcp/20 text-tcp;
+  }
+
+  .protocol-badge-sctp {
+    @apply protocol-badge bg-sctp/20 text-sctp;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+  }
+
+  .animate-slide-in {
+    animation: slideIn 0.3s ease-out forwards;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out forwards;
+  }
+
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted));
+    border-radius: 3px;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.3);
+  }
+  to {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.6);
+  }
+}

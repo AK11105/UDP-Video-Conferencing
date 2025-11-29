@@ -1,0 +1,4 @@
+python serve_metrics.py
+
+cd frontend
+npm run dev
