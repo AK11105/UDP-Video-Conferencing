@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useMetricsStore } from '@/store/metricsStore';
 import { MetricCard } from '@/components/cards/MetricCard';
 import { AreaChartComponent } from '@/components/charts/AreaChartComponent';
@@ -9,7 +10,6 @@ import {
   formatNumber,
   formatBytes,
 } from '@/utils/formatters';
-
 import {
   Layers,
   Clock,
@@ -25,107 +25,110 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-function generateSctpRecord() {
-  const now = new Date().toISOString();
-
-  // SCTP: better than TCP, worse than UDP
-  const rtt = 30 + Math.random() * 60;            // 30 - 90 ms (better than TCP)
-  const hbRtt = rtt + (5 + Math.random() * 20);   // heartbeat RTT slightly higher
-  const jitter = 2 + Math.random() * 6;           // modest jitter
-  const loss = Math.random() * 0.02;              // up to 2% packet loss
-  const cwnd = 16 * 1024 + Math.random() * 140 * 1024; // cwnd moderate
-  const inflight = 8 * 1024 + Math.random() * 60 * 1024;
+//
+// -------- THEORETICAL SCTP DATA (worse than UDP, slightly worse vs TCP) -------
+// Runs ONLY when sctpData is empty.
+// UDP best → TCP medium → SCTP weakest.
+//
+const generateSctpTheoretical = () => {
+  const t = Date.now();
 
   return {
-    ts: now,
+    ts: t,
     protocol: 'SCTP',
 
-    // SCTP identity
     stream_id: Math.floor(Math.random() * 4),
-    association_state: ['ESTABLISHED', 'COOKIE_ECHOED', 'SHUTDOWN_PENDING'][Math.floor(Math.random() * 3)],
+    association_state: 'ESTABLISHED',
 
-    // timing
-    heartbeat_rtt: Math.round(hbRtt),
-    rtt_ms: Math.round(rtt),
-    rto_ms: Math.round((rtt * 2.2)),
+    // worse bitrate/performance than UDP and TCP
+    bitrate_kbps: 900 + Math.random() * 300,
+    throughput_kbps: 700 + Math.random() * 250,
+    goodput_kbps: 500 + Math.random() * 200,
 
-    // reliability & retrans
-    sack_count: Math.floor(1 + Math.random() * 6),
-    retransmissions: Math.random() < 0.08 ? 1 : 0,   // ~8% chance
-    // flow / congestion
-    cwnd_bytes: Math.round(cwnd),
-    in_flight_bytes: Math.round(inflight),
-    receiver_window: Math.round(24 * 1024 + Math.random() * 160 * 1024),
-    ssthresh: Math.round(24 * 1024 + Math.random() * 80 * 1024),
+    rtt_ms: 100 + Math.random() * 30,
+    heartbeat_rtt: 120 + Math.random() * 40,
+    rto_ms: 250 + Math.random() * 80,
 
-    path_mtu: 1200 + Math.floor(Math.random() * 300),
+    latency_ms_avg: 70 + Math.random() * 20,
+    jitter_ms_avg: 20 + Math.random() * 8,
+    packet_loss_rate: 0.04 + Math.random() * 0.03,
 
-    // bandwidth (between UDP and TCP)
-    bitrate_kbps: Math.round(900 + Math.random() * 1700),
-    throughput_kbps: Math.round(800 + Math.random() * 1500),
-    goodput_kbps: Math.round(700 + Math.random() * 1400),
+    retransmissions: Math.floor(Math.random() * 12),
+    sack_count: Math.floor(Math.random() * 8),
 
-    // aggregated network stats
-    latency_ms_avg: Math.round(rtt),
-    jitter_ms_avg: Math.round(jitter),
-    packet_loss_rate: Number(loss.toFixed(4)),
+    cwnd_bytes: 30000 + Math.random() * 15000,
+    in_flight_bytes: 25000 + Math.random() * 10000,
+    receiver_window: 40000 + Math.random() * 15000,
+    ssthresh: 20000 + Math.random() * 10000,
 
-    // QoE
-    mos_score: Number((2.8 + Math.random() * 1.2).toFixed(2)),
-
-    // filler fields expected by UI (avoid N/A)
-    encode_ms_avg: 0,
-    decode_ms_avg: 0,
-    reassembly_ms_avg: 0,
-    audio_latency_ms: 0,
-    audio_jitter_ms: 0,
-    audio_packet_loss_rate: 0,
-    audio_bitrate: 0,
-    audio_levels: 0,
-
-    cpu_pct: 10 + Math.random() * 20,
-    mem_pct: 20 + Math.random() * 30,
-    proc_cpu_pct: 0,
-    network_queue_tx: 0,
-    network_queue_rx: 0,
-
-    frame_loss_rate: 0,
-    segment_loss_rate: 0,
-    psnr: null,
-    ssim: null,
+    path_mtu: 1300,
+    mos_score: 2.9 + Math.random() * 0.2,
   };
-}
+};
 
 export const SctpMetrics = () => {
-  const { sctpData } = useMetricsStore();
+  const { sctpData, getAggregatedMetrics, getLatestRecord } = useMetricsStore();
 
-  // ensure we always have usable data immediately (no N/A)
-  const finalData = sctpData.length > 0 ? sctpData : Array.from({ length: 120 }, generateSctpRecord);
-  const last100 = finalData.slice(-100);
-  const latest = last100[last100.length - 1] ?? generateSctpRecord();
+  // --------- fallback to theoretical if no SCTP data ---------
+  const latest = useMemo(() => {
+    if (sctpData.length > 0) return getLatestRecord('SCTP');
+    return generateSctpTheoretical();
+  }, [sctpData, getLatestRecord]);
 
-  // Prepare chart data (fields match your original UI)
+  const metrics = useMemo(() => {
+    if (sctpData.length > 0) return getAggregatedMetrics('SCTP');
+
+    const s = generateSctpTheoretical();
+    return {
+      protocol: 'SCTP',
+      avgBitrate: s.bitrate_kbps,
+      avgThroughput: s.throughput_kbps,
+      avgGoodput: s.goodput_kbps,
+      avgLatency: s.latency_ms_avg,
+      avgJitter: s.jitter_ms_avg,
+      avgPacketLoss: s.packet_loss_rate,
+      avgFrameLoss: 0,
+      avgSegmentLoss: 0,
+      avgEncodeTime: null,
+      avgDecodeTime: null,
+      avgReassemblyTime: null,
+      avgRtt: s.rtt_ms,
+      avgCwnd: s.cwnd_bytes,
+      avgRetransmissions: s.retransmissions,
+      avgCpu: null,
+      avgMem: null,
+      totalBytesSent: 0,
+      totalBytesRecv: 0,
+      totalFramesSent: 0,
+      totalFramesRecv: 0,
+      avgMos: s.mos_score,
+    };
+  }, [sctpData, getAggregatedMetrics]);
+
+  // smooth performance — no flicker
+  const last100 = useMemo(() => sctpData.slice(-100), [sctpData]);
+
   const throughputData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     throughput: r.throughput_kbps || 0,
     goodput: r.goodput_kbps || 0,
     bitrate: r.bitrate_kbps || 0,
   }));
 
   const rttData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     rtt: r.rtt_ms || 0,
-    heartbeatRtt: r.heartbeat_rtt || r.heartbeat_rtt || 0, // support both keys if any
+    heartbeatRtt: r.heartbeat_rtt || 0,
   }));
 
   const retransmissionData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     retransmissions: r.retransmissions || 0,
-    sackCount: r.sack_count || r.sack_count || 0,
+    sackCount: r.sack_count || 0,
   }));
 
   const bufferData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     cwnd: (r.cwnd_bytes || 0) / 1024,
     inFlight: (r.in_flight_bytes || 0) / 1024,
     receiverWindow: (r.receiver_window || 0) / 1024,
@@ -140,151 +143,75 @@ export const SctpMetrics = () => {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-foreground">SCTP Metrics</h1>
-          <p className="text-muted-foreground">Stream Control Transmission Protocol - Multi-streaming</p>
+          <p className="text-muted-foreground">Stream Control Transmission Protocol</p>
         </div>
-        <span className={`ml-auto px-3 py-1 rounded-full text-sm font-medium bg-sctp/20 text-sctp`}>
-          {finalData.length} records
+        <span className="ml-auto px-3 py-1 rounded-full bg-sctp/20 text-sctp text-sm font-medium">
+          {sctpData.length > 0 ? `${sctpData.length} records` : 'Theoretical Model'}
         </span>
       </div>
 
-      {/* Theoretical banner if data was generated locally */}
+      {/* Info Banner */}
       {sctpData.length === 0 && (
         <div className="glass-card rounded-xl p-4 border-l-4 border-warning bg-warning/5">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-warning mt-0.5" />
             <div>
-              <h3 className="font-semibold text-foreground">Theoretical Data Mode</h3>
+              <h3 className="font-semibold text-foreground">Theoretical Mode</h3>
               <p className="text-sm text-muted-foreground">
-                SCTP metrics are simulated client-side and intentionally set to be better than TCP but not as good as UDP.
+                SCTP metrics are simulated. Real multi-stream SCTP values will appear once SCTP transport is implemented.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* SCTP-Specific Metrics - Row 1 */}
+      {/* Row 1 — SCTP-specific */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <MetricCard
-          label="Stream ID"
-          value={formatNumber(latest?.stream_id ?? 0, 0)}
-          icon={Radio}
-          protocol="sctp"
-        />
+        <MetricCard label="Stream ID" value={formatNumber(latest.stream_id, 0)} icon={Radio} protocol="sctp" />
         <MetricCard
           label="Association State"
-          value={latest?.association_state || 'N/A'}
+          value={latest.association_state}
           icon={CheckCircle2}
           protocol="sctp"
           size="sm"
         />
-        {/* <MetricCard
-          label="Heartbeat RTT"
-          value={formatLatency(latest?.heartbeat_rtt ?? latest?.heartbeatRtt)}
-          icon={Heart}
-          protocol="sctp"
-        /> */}
-        <MetricCard
-          label="RTT"
-          value={formatLatency(latest?.rtt_ms)}
-          icon={Clock}
-          protocol="sctp"
-        />
-        {/* <MetricCard
-          label="SACK Count"
-          value={formatNumber(latest?.sack_count ?? latest?.sackCount ?? 0, 0)}
-          icon={CheckCircle2}
-          protocol="sctp"
-        /> */}
+        <MetricCard label="Heartbeat RTT" value={formatLatency(latest.heartbeat_rtt)} icon={Heart} protocol="sctp" />
+        <MetricCard label="RTT" value={formatLatency(latest.rtt_ms)} icon={Clock} protocol="sctp" />
+        <MetricCard label="SACK Count" value={formatNumber(latest.sack_count)} icon={CheckCircle2} protocol="sctp" />
         <MetricCard
           label="Retransmissions"
-          value={formatNumber(latest?.retransmissions ?? 0, 0)}
+          value={formatNumber(latest.retransmissions)}
           icon={RefreshCw}
           protocol="sctp"
         />
       </div>
 
-      {/* SCTP-Specific Metrics - Row 2 */}
+      {/* Row 2 */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <MetricCard
-          label="CWND"
-          value={formatBytes(latest?.cwnd_bytes)}
-          icon={Gauge}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="In-Flight"
-          value={formatBytes(latest?.in_flight_bytes)}
-          icon={ArrowLeftRight}
-          protocol="sctp"
-        />
+        <MetricCard label="CWND" value={formatBytes(latest.cwnd_bytes)} icon={Gauge} protocol="sctp" />
+        <MetricCard label="In-Flight" value={formatBytes(latest.in_flight_bytes)} icon={ArrowLeftRight} protocol="sctp" />
         <MetricCard
           label="Receiver Window"
-          value={formatBytes(latest?.receiver_window)}
+          value={formatBytes(latest.receiver_window)}
           icon={Activity}
           protocol="sctp"
         />
-        <MetricCard
-          label="Path MTU"
-          value={formatNumber(latest?.path_mtu ?? 0, 0)}
-          unit="bytes"
-          icon={ArrowLeftRight}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="RTO"
-          value={formatLatency(latest?.rto_ms)}
-          icon={Timer}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="ssthresh"
-          value={formatBytes(latest?.ssthresh)}
-          icon={AlertTriangle}
-          protocol="sctp"
-        />
+        <MetricCard label="Path MTU" value={formatNumber(latest.path_mtu)} icon={ArrowLeftRight} protocol="sctp" />
+        <MetricCard label="RTO" value={formatLatency(latest.rto_ms)} icon={Timer} protocol="sctp" />
+        <MetricCard label="ssthresh" value={formatBytes(latest.ssthresh)} icon={AlertTriangle} protocol="sctp" />
       </div>
 
-      {/* Standard Network Metrics */}
+      {/* Standard Network Metrics Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <MetricCard
-          label="Throughput"
-          value={formatBitrate(latest?.throughput_kbps)}
-          icon={Activity}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="Goodput"
-          value={formatBitrate(latest?.goodput_kbps)}
-          icon={Gauge}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="Latency"
-          value={formatLatency(latest?.latency_ms_avg ?? latest?.rtt_ms)}
-          icon={Clock}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="Jitter"
-          value={formatLatency(latest?.jitter_ms_avg)}
-          icon={Activity}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="Packet Loss"
-          value={formatPercentage(latest?.packet_loss_rate)}
-          icon={AlertTriangle}
-          protocol="sctp"
-        />
-        <MetricCard
-          label="MOS Score"
-          value={formatNumber(latest?.mos_score, 2)}
-          icon={Activity}
-          protocol="sctp"
-        />
+        <MetricCard label="Throughput" value={formatBitrate(latest.throughput_kbps)} icon={Activity} protocol="sctp" />
+        <MetricCard label="Goodput" value={formatBitrate(latest.goodput_kbps)} icon={Gauge} protocol="sctp" />
+        <MetricCard label="Latency" value={formatLatency(latest.latency_ms_avg)} icon={Clock} protocol="sctp" />
+        <MetricCard label="Jitter" value={formatLatency(latest.jitter_ms_avg)} icon={Activity} protocol="sctp" />
+        <MetricCard label="Packet Loss" value={formatPercentage(latest.packet_loss_rate)} icon={AlertTriangle} protocol="sctp" />
+        <MetricCard label="MOS Score" value={formatNumber(latest.mos_score, 2)} icon={Activity} protocol="sctp" />
       </div>
 
-      {/* Charts */}
+      {/* Charts Row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <AreaChartComponent
           data={throughputData}
@@ -296,6 +223,7 @@ export const SctpMetrics = () => {
           title="Bandwidth Metrics (Kbps)"
           height={280}
         />
+
         <LineChartComponent
           data={rttData}
           dataKeys={[
@@ -307,6 +235,7 @@ export const SctpMetrics = () => {
         />
       </div>
 
+      {/* Charts Row 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <AreaChartComponent
           data={retransmissionData}
@@ -317,6 +246,7 @@ export const SctpMetrics = () => {
           title="Reliability Metrics"
           height={280}
         />
+
         <AreaChartComponent
           data={bufferData}
           dataKeys={[
@@ -329,33 +259,25 @@ export const SctpMetrics = () => {
         />
       </div>
 
-      {/* SCTP Characteristics Info */}
+      {/* Info Block */}
       <div className="glass-card rounded-xl p-6">
         <h3 className="font-semibold text-foreground mb-4">SCTP Characteristics</h3>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="space-y-2">
+          <div>
             <h4 className="text-sm font-medium text-sctp">Multi-Streaming</h4>
-            <p className="text-xs text-muted-foreground">
-              Independent streams within a single association avoid head-of-line blocking.
-            </p>
+            <p className="text-xs text-muted-foreground">Independent streams prevent HOL blocking.</p>
           </div>
-          <div className="space-y-2">
+          <div>
             <h4 className="text-sm font-medium text-sctp">Message-Oriented</h4>
-            <p className="text-xs text-muted-foreground">
-              Preserves message boundaries unlike TCP's byte-stream model.
-            </p>
+            <p className="text-xs text-muted-foreground">Preserves message boundaries unlike TCP.</p>
           </div>
-          <div className="space-y-2">
+          <div>
             <h4 className="text-sm font-medium text-sctp">Partial Reliability</h4>
-            <p className="text-xs text-muted-foreground">
-              PR-SCTP allows timed reliability for real-time applications.
-            </p>
+            <p className="text-xs text-muted-foreground">Supports timed reliability (PR-SCTP).</p>
           </div>
-          <div className="space-y-2">
+          <div>
             <h4 className="text-sm font-medium text-sctp">Multi-Homing</h4>
-            <p className="text-xs text-muted-foreground">
-              Supports multiple IP addresses per endpoint for fault tolerance.
-            </p>
+            <p className="text-xs text-muted-foreground">Multiple IP paths for resilience.</p>
           </div>
         </div>
       </div>

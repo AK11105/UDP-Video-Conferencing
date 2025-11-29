@@ -1,8 +1,14 @@
+import { useMemo } from 'react';
 import { useMetricsStore } from '@/store/metricsStore';
 import { MetricCard } from '@/components/cards/MetricCard';
 import { AreaChartComponent } from '@/components/charts/AreaChartComponent';
 import { LineChartComponent } from '@/components/charts/LineChartComponent';
-import { formatBitrate, formatLatency, formatPercentage, formatNumber, formatBytes } from '@/utils/formatters';
+import {
+  formatBitrate,
+  formatLatency,
+  formatPercentage,
+  formatNumber,
+} from '@/utils/formatters';
 import {
   Zap,
   Clock,
@@ -12,63 +18,64 @@ import {
   HardDrive,
   Radio,
   Volume2,
-  MonitorSpeaker,
   Gauge,
   Timer,
   Layers,
 } from 'lucide-react';
 
 export const UdpMetrics = () => {
-  const { udpData, getAggregatedMetrics, getLatestRecord } = useMetricsStore();
-  const metrics = getAggregatedMetrics('UDP');
-  const latest = getLatestRecord('UDP');
+  const { udpData, getLatestRecord } = useMetricsStore();
 
-  const last100 = udpData.slice(-100);
+  // Latest record — ALWAYS safe due to MetricCard fixes
+  const latest = useMemo(() => getLatestRecord('UDP'), [udpData]);
 
-  // Prepare chart data
+  // Smooth last 100 entries
+  const last100 = useMemo(() => udpData.slice(-100), [udpData]);
+
+  // ---------- Chart Data (timestamp always ISO, avoids “Invalid Date”) ----------
   const bitrateData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     bitrate: r.bitrate_kbps || 0,
     throughput: r.throughput_kbps || 0,
     goodput: r.goodput_kbps || 0,
   }));
 
   const timingData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     encode: r.encode_ms_avg || 0,
     decode: r.decode_ms_avg || 0,
     reassembly: r.reassembly_ms_avg || 0,
   }));
 
   const networkData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     latency: r.latency_ms_avg || 0,
     jitter: r.jitter_ms_avg || 0,
   }));
 
   const lossData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     packet: r.packet_loss_rate || 0,
     frame: r.frame_loss_rate || 0,
     segment: r.segment_loss_rate || 0,
   }));
 
   const audioData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     latency: r.audio_latency_ms || 0,
     jitter: r.audio_jitter_ms || 0,
-    loss: (r.audio_packet_loss_rate || 0) * 10, // Scale for visibility
+    loss: (r.audio_packet_loss_rate || 0) * 10,
   }));
 
   const systemData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     cpu: r.cpu_pct || 0,
     memory: r.mem_pct || 0,
     procCpu: r.proc_cpu_pct || 0,
   }));
 
   const queueData = last100.map((r) => ({
-    timestamp: r.ts,
+    timestamp: new Date(r.ts).toISOString(),
     tx: r.network_queue_tx || 0,
     rx: r.network_queue_rx || 0,
   }));
@@ -82,14 +89,14 @@ export const UdpMetrics = () => {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-foreground">UDP Metrics</h1>
-          <p className="text-muted-foreground">User Datagram Protocol - Real-time data</p>
+          <p className="text-muted-foreground">User Datagram Protocol – Real-time Transport</p>
         </div>
-        <span className="ml-auto px-3 py-1 rounded-full bg-success/20 text-success text-sm font-medium animate-pulse">
+        <span className="ml-auto px-3 py-1 rounded-full bg-success/20 text-success text-sm font-medium">
           {udpData.length} records
         </span>
       </div>
 
-      {/* Key Metrics - Row 1 */}
+      {/* Key Metrics Row 1 */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         <MetricCard
           label="Bitrate"
@@ -129,7 +136,7 @@ export const UdpMetrics = () => {
         />
       </div>
 
-      {/* Key Metrics - Row 2 */}
+      {/* Key Metrics Row 2 */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         <MetricCard
           label="Encode Time"
@@ -152,7 +159,7 @@ export const UdpMetrics = () => {
         <MetricCard
           label="MOS Score"
           value={formatNumber(latest?.mos_score, 2)}
-          icon={MonitorSpeaker}
+          icon={Activity}
           protocol="udp"
         />
         <MetricCard
@@ -170,7 +177,7 @@ export const UdpMetrics = () => {
         />
       </div>
 
-      {/* Audio Metrics Row */}
+      {/* Audio Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
         <MetricCard
           label="Audio Latency"
@@ -218,6 +225,7 @@ export const UdpMetrics = () => {
           title="Bandwidth Metrics (Kbps)"
           height={280}
         />
+
         <AreaChartComponent
           data={timingData}
           dataKeys={[
@@ -241,6 +249,7 @@ export const UdpMetrics = () => {
           title="Latency & Jitter (ms)"
           height={280}
         />
+
         <AreaChartComponent
           data={lossData}
           dataKeys={[
@@ -265,6 +274,7 @@ export const UdpMetrics = () => {
           title="Audio Metrics"
           height={280}
         />
+
         <AreaChartComponent
           data={systemData}
           dataKeys={[
