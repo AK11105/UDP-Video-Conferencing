@@ -3,6 +3,7 @@ from __future__ import division
 import cv2, numpy as np, socket, struct, math, threading, queue, time, argparse
 import sounddevice as sd
 from .shared.constants import *
+from .shared.metrics import metrics
 
 class AVFlags:
     def __init__(self, audio_on=True, video_on=True):
@@ -23,17 +24,32 @@ def segment_send(sock, img_bytes, target):
     count = int(math.ceil(size / float(MAX_IMAGE_DGRAM)))
     start = 0
     remaining = count
+    # mark start for send (use target IP)
+    try:
+        metrics.mark_frame_start(("send", target[0]))
+    except Exception:
+        pass
     while remaining:
         end = min(size, start + MAX_IMAGE_DGRAM)
-        sock.sendto(struct.pack("B", remaining) + img_bytes[start:end], target)
+        chunk = img_bytes[start:end]
+        sock.sendto(struct.pack("B", remaining) + chunk, target)
+        try:
+            metrics.inc_bytes_sent(len(chunk))
+        except:
+            pass
         start = end
         remaining -= 1
+    try:
+        metrics.frame_sent()
+    except:
+        pass
 
 def receive_packets(sock, packet_queue, stop_event):
     while not stop_event.is_set():
         try:
-            seg, _ = sock.recvfrom(MAX_DGRAM)
-            packet_queue.put(seg)
+            seg, addr = sock.recvfrom(MAX_DGRAM)
+            # put tuple (seg, addr) so we can attribute ip if needed
+            packet_queue.put((seg, addr))
         except:
             continue
 
@@ -52,9 +68,13 @@ def capture_and_uplink_video(server_host, flags: AVFlags, stop_event):
                 time.sleep(0.02); continue
             if not flags.is_video_on():
                 time.sleep(0.02); continue
+            t0 = time.perf_counter()
             ok, enc = cv2.imencode(".jpg", frame, encode_param)
-            if not ok: continue
-            segment_send(uplink, enc.tobytes(), target)
+            enc_ms = (time.perf_counter() - t0) * 1000.0
+            if ok:
+                try: metrics.add_encode_time(enc_ms)
+                except: pass
+                segment_send(uplink, enc.tobytes(), target)
             time.sleep(0.03)
     finally:
         cap.release()
@@ -101,7 +121,9 @@ def audio_capture_uplink(server_host, flags: AVFlags, stop_event):
         ts_ns = time.time_ns()
         header = struct.pack("!QI", ts_ns, seq)
         seq = (seq + 1) & 0xFFFFFFFF
-        try: uplink.sendto(header + pcm.tobytes(), target)
+        try:
+            uplink.sendto(header + pcm.tobytes(), target)
+            metrics.inc_bytes_sent(len(header) + pcm.nbytes)
         except: pass
     try:
         with sd.InputStream(samplerate=AUDIO_RATE, channels=1, dtype='float32', blocksize=AUDIO_SAMPLES, callback=callback):
@@ -241,18 +263,38 @@ def main():
     try:
         while not stop_event.is_set() and not goodbye_event.is_set():
             try:
-                seg = pkt_queue.get(timeout=0.1)
+                seg, addr = pkt_queue.get(timeout=0.1)
             except queue.Empty:
                 if goodbye_event.is_set(): break
                 continue
+            # seg is bytes, addr is (ip, port)
+            # count bytes/segments
+            try: metrics.inc_bytes_recv(len(seg))
+            except: pass
+
             remain = struct.unpack("B", seg[0:1])[0]
+            # if starting new frame (dat empty) mark start
+            if len(dat) == 0:
+                try: metrics.mark_frame_start(("recv", addr[0]))
+                except: pass
             dat += seg[1:]
             if remain == 1:
                 arr = np.frombuffer(dat, dtype=np.uint8)
+                # decode measurement
+                tdec0 = time.perf_counter()
                 img = cv2.imdecode(arr, 1)
+                dec_ms = (time.perf_counter() - tdec0) * 1000.0
                 dat = b""
                 if img is not None:
+                    try:
+                        metrics.add_decode_time(dec_ms)
+                        metrics.frame_received()
+                        metrics.mark_frame_complete(("recv", addr[0]))
+                    except: pass
                     cv2.imshow("Multiparty Stream", img)
+                else:
+                    try: metrics.frame_dropped()
+                    except: pass
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     goodbye_event.set()
                     break
@@ -265,6 +307,10 @@ def main():
     try: asock.close()
     except: pass
     cv2.destroyAllWindows()
+    # stop metrics background thread gracefully
+    try:
+        metrics.stop()
+    except: pass
     print("[INFO] Client stopped.")
 
 if __name__ == "__main__":

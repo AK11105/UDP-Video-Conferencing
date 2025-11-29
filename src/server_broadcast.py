@@ -3,6 +3,7 @@ from __future__ import division
 import cv2, numpy as np, socket, struct, math, threading, queue, time
 from concurrent.futures import ThreadPoolExecutor
 from .shared.constants import *
+from .shared.metrics import metrics
 
 # Local video staleness (ms) before we show black instead of last frame
 VIDEO_MAX_AGE_MS = 1000  # 1s
@@ -64,11 +65,19 @@ class FrameSegment:
         count = int(math.ceil(size / float(MAX_IMAGE_DGRAM)))
         start = 0
         remaining = count
+        # mark frame start for this peer
+        try: metrics.mark_frame_start(("send_to", target[0]))
+        except: pass
         while remaining:
             end = min(size, start + MAX_IMAGE_DGRAM)
-            self.s.sendto(struct.pack("B", remaining) + img_bytes[start:end], target)
+            chunk = img_bytes[start:end]
+            self.s.sendto(struct.pack("B", remaining) + chunk, target)
+            try: metrics.inc_bytes_sent(len(chunk))
+            except: pass
             start = end
             remaining -= 1
+        try: metrics.frame_sent()
+        except: pass
 
 # ====================== Control plane ======================
 
@@ -168,24 +177,45 @@ def uplink_receiver(frames_dict, stop_event):
             seg, (ip, _port) = sock.recvfrom(MAX_DGRAM)
         except socket.timeout:
             continue
+        except Exception:
+            continue
         if not seg:
             continue
+
+        # count bytes/segments received
+        try: metrics.inc_bytes_recv(len(seg))
+        except: pass
 
         remain = seg[0]
         buf = buffers.get(ip)
         if buf is None:
             buf = bytearray()
             buffers[ip] = buf
+            # mark reassembly start for this ip
+            try: metrics.mark_frame_start(("uplink", ip))
+            except: pass
         buf += seg[1:]
 
         if remain == 1:
             complete = buffers.pop(ip, None)
             if not complete:
+                try: metrics.segment_dropped()
+                except: pass
                 continue
             arr = np.frombuffer(bytes(complete), dtype=np.uint8)
+            tdec0 = time.perf_counter()
             img = cv2.imdecode(arr, 1)
+            dec_ms = (time.perf_counter() - tdec0) * 1000.0
             if img is not None:
                 frames_dict[ip] = (time.time_ns(), img)
+                try:
+                    metrics.add_decode_time(dec_ms)
+                    metrics.frame_received()
+                    metrics.mark_frame_complete(("uplink", ip))
+                except: pass
+            else:
+                try: metrics.frame_dropped()
+                except: pass
     sock.close()
 
 def make_mosaic_from_peers(peers, frames_dict, video_off_set, tile_w=TILE_W, tile_h=TILE_H):
@@ -227,8 +257,12 @@ def mixer_loop(pm_video, frames_dict, video_off_set, frame_queue, stop_event):
     while not stop_event.is_set():
         peers = pm_video.active()  # list of (ip, port)
         mosaic = make_mosaic_from_peers(peers, frames_dict, video_off_set)
+        tenc0 = time.perf_counter()
         ok, enc = cv2.imencode(".jpg", mosaic, encode_param)
+        enc_ms = (time.perf_counter() - tenc0) * 1000.0
         if ok:
+            try: metrics.add_encode_time(enc_ms)
+            except: pass
             try:
                 frame_queue.put(enc.tobytes(), timeout=0.05)
             except queue.Full:
@@ -292,7 +326,11 @@ def audio_send_loop(pm_audio, mix_queue, stop_event):
         seq = (seq + 1) & 0xFFFFFFFF
         payload = header + block
         for (ip, port) in pm_audio.active():
-            sock.sendto(payload, (ip, port))
+            try:
+                sock.sendto(payload, (ip, port))
+                metrics.inc_bytes_sent(len(payload))
+            except:
+                pass
     sock.close()
 
 # ====================== Video broadcaster ======================
@@ -348,6 +386,10 @@ def main():
     stop_event.set()
     time.sleep(0.2)
     sock.close()
+    # stop metrics background thread gracefully
+    try:
+        metrics.stop()
+    except: pass
     print("[INFO] Server stopped.")
 
 if __name__ == "__main__":
