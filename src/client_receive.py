@@ -2,10 +2,14 @@
 from __future__ import division
 import cv2, numpy as np, socket, struct, math, threading, queue, time, argparse
 import sounddevice as sd
+import base64, json, sys
 from .shared.constants import *
 from .shared.metrics import metrics
 
 
+# -----------------------------
+# FLAGS
+# -----------------------------
 class AVFlags:
     def __init__(self, audio_on=True, video_on=True):
         self._lock = threading.Lock()
@@ -29,13 +33,15 @@ class AVFlags:
             return self.video_on
 
 
+# -----------------------------
+# VIDEO UPLINK
+# -----------------------------
 def segment_send(sock, img_bytes, target):
     size = len(img_bytes)
     count = int(math.ceil(size / float(MAX_IMAGE_DGRAM)))
     start = 0
     remaining = count
 
-    # record frame start
     try:
         metrics.mark_frame_start(("send", target[0]))
     except:
@@ -44,7 +50,6 @@ def segment_send(sock, img_bytes, target):
     while remaining:
         end = min(size, start + MAX_IMAGE_DGRAM)
         chunk = img_bytes[start:end]
-
         sock.sendto(struct.pack("B", remaining) + chunk, target)
 
         try:
@@ -109,6 +114,9 @@ def capture_and_uplink_video(server_host, flags: AVFlags, stop_event):
         uplink.close()
 
 
+# -----------------------------
+# HEARTBEATS
+# -----------------------------
 def heartbeats(server_host, video_port, audio_port, stop_event, goodbye_event):
     ctrl = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     srv = (server_host, CTRL_PORT)
@@ -134,9 +142,7 @@ def heartbeats(server_host, video_port, audio_port, stop_event, goodbye_event):
             if goodbye_event.is_set():
                 send_leave()
                 break
-
             time.sleep(HEARTBEAT_EVERY)
-
             try:
                 ctrl.sendto(f"HEARTBEAT {video_port}".encode(), srv)
                 ctrl.sendto(f"AHEARTBEAT {audio_port}".encode(), srv)
@@ -147,6 +153,9 @@ def heartbeats(server_host, video_port, audio_port, stop_event, goodbye_event):
         ctrl.close()
 
 
+# -----------------------------
+# AUDIO UPLINK
+# -----------------------------
 def audio_capture_uplink(server_host, flags: AVFlags, stop_event):
     seq = 0
     uplink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -154,7 +163,6 @@ def audio_capture_uplink(server_host, flags: AVFlags, stop_event):
 
     def callback(indata, frames, time_info, status):
         nonlocal seq
-
         if stop_event.is_set():
             raise sd.CallbackStop
 
@@ -162,7 +170,6 @@ def audio_capture_uplink(server_host, flags: AVFlags, stop_event):
             return
 
         pcm = np.clip(indata[:, 0] * 32767.0, -32768, 32767).astype(np.int16)
-
         if pcm.shape[0] != AUDIO_SAMPLES:
             return
 
@@ -190,18 +197,19 @@ def audio_capture_uplink(server_host, flags: AVFlags, stop_event):
         uplink.close()
 
 
+# -----------------------------
+# AUDIO DOWNLINK
+# -----------------------------
 def audio_downlink_receiver_bind(preferred_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
     if preferred_port == 0:
         sock.bind(("0.0.0.0", 0))
     else:
         try:
             sock.bind(("0.0.0.0", preferred_port))
         except OSError:
-            print(f"[WARN] Audio port {preferred_port} busy → using random ephemeral port")
+            print(f"[WARN] Audio port {preferred_port} busy -> using random ephemeral port")
             sock.bind(("0.0.0.0", 0))
-
     return sock, sock.getsockname()[1]
 
 
@@ -220,7 +228,6 @@ def audio_playback_loop(sock, flags: AVFlags, stop_event):
                 continue
 
             payload = pkt[header_bytes:]
-
             if len(payload) != AUDIO_SAMPLES * 2:
                 continue
 
@@ -256,27 +263,32 @@ def audio_playback_loop(sock, flags: AVFlags, stop_event):
         pass
 
 
+# -----------------------------
+# GENERIC UDP BIND
+# -----------------------------
 def bind_udp(preferred_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
     if preferred_port == 0:
         sock.bind(("0.0.0.0", 0))
     else:
         try:
             sock.bind(("0.0.0.0", preferred_port))
         except:
-            print(f"[WARN] Port {preferred_port} busy → using random ephemeral port")
+            print(f"[WARN] Port {preferred_port} busy -> using random ephemeral port")
             sock.bind(("0.0.0.0", 0))
-
     return sock, sock.getsockname()[1]
 
 
+# -----------------------------
+# LOCAL CONTROL SERVER
+# -----------------------------
 def local_control_server(server_host, flags: AVFlags, stop_event, goodbye_event, ctl_port=0):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("127.0.0.1", ctl_port))
-
     actual_port = sock.getsockname()[1]
-    print(f"[LOCALCTL] running at udp://127.0.0.1:{actual_port}")
+
+    # BRIDGE USES THIS LINE
+    print(f"[LOCALCTL] running at udp://127.0.0.1:{actual_port}", flush=True)
 
     ctrl = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server = (server_host, CTRL_PORT)
@@ -307,6 +319,64 @@ def local_control_server(server_host, flags: AVFlags, stop_event, goodbye_event,
     ctrl.close()
 
 
+# ===============================================================
+# ================   VIDEO MOSAIC DOWNLINK LOOP   ===============
+# ===============================================================
+def video_downlink_loop(pkt_queue, stop_event, goodbye_event):
+    """
+    Replaces GUI (imshow) with sending base64 JPEG frames to stdout
+    so Node bridge can forward to WebSocket → React frontend.
+    """
+
+    dat = b""
+    print("[INFO] Receiving mosaic frames (stream mode, no GUI)", flush=True)
+
+    try:
+        while not stop_event.is_set() and not goodbye_event.is_set():
+            try:
+                seg, addr = pkt_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            metrics.inc_bytes_recv(len(seg))
+
+            remain = seg[0]
+            if len(dat) == 0:
+                metrics.mark_frame_start(("recv", addr[0]))
+
+            dat += seg[1:]
+
+            if remain == 1:
+                arr = np.frombuffer(dat, dtype=np.uint8)
+                t0 = time.perf_counter()
+                img = cv2.imdecode(arr, 1)
+                dec_ms = (time.perf_counter() - t0) * 1000
+                metrics.add_decode_time(dec_ms)
+
+                dat = b""
+
+                if img is not None:
+                    metrics.frame_received()
+                    metrics.mark_frame_complete(("recv", addr[0]))
+
+                    ok, enc = cv2.imencode(".jpg", img)
+                    if ok:
+                        b64 = base64.b64encode(enc).decode()
+                        sys.stdout.write(json.dumps({
+                            "type": "frame",
+                            "payload": b64
+                        }) + "\n")
+                        sys.stdout.flush()
+                else:
+                    metrics.frame_dropped()
+
+    except KeyboardInterrupt:
+        goodbye_event.set()
+
+
+# -----------------------------
+# MAIN
+# -----------------------------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", required=True)
@@ -331,7 +401,7 @@ def main():
     stop_event = threading.Event()
     goodbye_event = threading.Event()
 
-    # threads
+    # Threads
     threading.Thread(target=receive_packets, args=(vsock, pkt_queue, stop_event), daemon=True).start()
     threading.Thread(target=heartbeats, args=(server_host, vport, aport, stop_event, goodbye_event), daemon=True).start()
 
@@ -344,58 +414,21 @@ def main():
 
     threading.Thread(target=local_control_server, args=(server_host, flags, stop_event, goodbye_event, args.localctl), daemon=True).start()
 
-    # ---- VIDEO DOWNLINK DISPLAY ----
-    dat = b""
-    print("[INFO] Receiving mosaic (press Q to quit)")
+    # VIDEO MOSAIC DOWNLINK (NO GUI — STREAM TO STDOUT)
+    threading.Thread(target=video_downlink_loop, args=(pkt_queue, stop_event, goodbye_event), daemon=True).start()
 
+    # Wait for BYE
     try:
-        while not stop_event.is_set() and not goodbye_event.is_set():
-            try:
-                seg, addr = pkt_queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
-
-            metrics.inc_bytes_recv(len(seg))
-
-            remain = seg[0]
-
-            if len(dat) == 0:
-                metrics.mark_frame_start(("recv", addr[0]))
-
-            dat += seg[1:]
-
-            if remain == 1:
-                arr = np.frombuffer(dat, dtype=np.uint8)
-
-                t0 = time.perf_counter()
-                img = cv2.imdecode(arr, 1)
-                dec_ms = (time.perf_counter() - t0) * 1000
-                metrics.add_decode_time(dec_ms)
-
-                dat = b""
-
-                if img is not None:
-                    metrics.frame_received()
-                    metrics.mark_frame_complete(("recv", addr[0]))
-                    cv2.imshow("Multiparty Stream", img)
-                else:
-                    metrics.frame_dropped()
-
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    goodbye_event.set()
-                    break
-
+        while not goodbye_event.is_set():
+            time.sleep(0.2)
     except KeyboardInterrupt:
         goodbye_event.set()
 
     stop_event.set()
     vsock.close()
     asock.close()
-
-    cv2.destroyAllWindows()
-
     metrics.stop()
-    print("[INFO] Client stopped.")
+    print("[INFO] Client stopped.", flush=True)
 
 
 if __name__ == "__main__":

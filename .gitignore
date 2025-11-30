@@ -13,3 +13,5 @@ wheels/
 
 /metrics/metrics.csv
 /metrics/metrics.json
+/*/metrics.json
+/*/metrics.json
