@@ -10,3 +10,6 @@ wheels/
 .venv
 
 */node_modules
+
+/metrics/metrics.csv
+/metrics/metrics.json

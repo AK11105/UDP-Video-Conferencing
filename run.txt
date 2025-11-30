@@ -1,8 +1,14 @@
 python serve_metrics.py
 
+cd bridge-server
+npm run dev
+
+cd realtime-studio-ui
+npm run dev
+
 cd frontend
 npm run dev
 
-python -m src.server_broadcast.py
+python -m src.server_broadcast
 
-python -m src.gui_client
+python -m src.gui_client (dont use in case of ui)
