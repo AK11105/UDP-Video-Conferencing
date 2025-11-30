@@ -2,3 +2,7 @@ python serve_metrics.py
 
 cd frontend
 npm run dev
+
+python -m src.server_broadcast.py
+
+python -m src.gui_client

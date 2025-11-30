@@ -14,8 +14,6 @@ import {
   Clock,
   AlertTriangle,
   Activity,
-  Cpu,
-  HardDrive,
   Radio,
   Volume2,
   Gauge,
@@ -23,62 +21,105 @@ import {
   Layers,
 } from 'lucide-react';
 
+// defensive timestamp -> always returns valid ISO string
+const safeISO = (ts: any) => {
+  try {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return new Date().toISOString();
+    return d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+};
+
 export const UdpMetrics = () => {
   const { udpData, getLatestRecord } = useMetricsStore();
 
-  // Latest record — ALWAYS safe due to MetricCard fixes
+  // Latest record (safe)
   const latest = useMemo(() => getLatestRecord('UDP'), [udpData]);
 
-  // Smooth last 100 entries
-  const last100 = useMemo(() => udpData.slice(-100), [udpData]);
+  // Keep last 100 valid records only
+  const last100 = useMemo(() => {
+    if (!Array.isArray(udpData)) return [];
+    return udpData
+      .filter((r) => r && (r.ts)) // simple existence check
+      .slice(-100);
+  }, [udpData]);
 
-  // ---------- Chart Data (timestamp always ISO, avoids “Invalid Date”) ----------
-  const bitrateData = last100.map((r) => ({
-    timestamp: new Date(r.ts).toISOString(),
-    bitrate: r.bitrate_kbps || 0,
-    throughput: r.throughput_kbps || 0,
-    goodput: r.goodput_kbps || 0,
-  }));
+  const bitrateData = useMemo(
+    () =>
+      last100.map((r) => ({
+        timestamp: safeISO(r.ts),
+        bitrate: r.bitrate_kbps || 0,
+        throughput: r.throughput_kbps || 0,
+        goodput: r.goodput_kbps || 0,
+      })),
+    [last100]
+  );
 
-  const timingData = last100.map((r) => ({
-    timestamp: new Date(r.ts).toISOString(),
-    encode: r.encode_ms_avg || 0,
-    decode: r.decode_ms_avg || 0,
-    reassembly: r.reassembly_ms_avg || 0,
-  }));
+  const timingData = useMemo(
+    () =>
+      last100.map((r) => ({
+        timestamp: safeISO(r.ts),
+        encode: r.encode_ms_avg || 0,
+        decode: r.decode_ms_avg || 0,
+        reassembly: r.reassembly_ms_avg || 0,
+      })),
+    [last100]
+  );
 
-  const networkData = last100.map((r) => ({
-    timestamp: new Date(r.ts).toISOString(),
-    latency: r.latency_ms_avg || 0,
-    jitter: r.jitter_ms_avg || 0,
-  }));
+  const networkData = useMemo(
+    () =>
+      last100.map((r) => ({
+        timestamp: safeISO(r.ts),
+        latency: r.latency_ms_avg || 0,
+        jitter: r.jitter_ms_avg || 0,
+      })),
+    [last100]
+  );
 
-  const lossData = last100.map((r) => ({
-    timestamp: new Date(r.ts).toISOString(),
-    packet: r.packet_loss_rate || 0,
-    frame: r.frame_loss_rate || 0,
-    segment: r.segment_loss_rate || 0,
-  }));
+  const lossData = useMemo(
+    () =>
+      last100.map((r) => ({
+        timestamp: safeISO(r.ts),
+        packet: r.packet_loss_rate || 0,
+        frame: r.frame_loss_rate || 0,
+        segment: r.segment_loss_rate || 0,
+      })),
+    [last100]
+  );
 
-  const audioData = last100.map((r) => ({
-    timestamp: new Date(r.ts).toISOString(),
-    latency: r.audio_latency_ms || 0,
-    jitter: r.audio_jitter_ms || 0,
-    loss: (r.audio_packet_loss_rate || 0) * 10,
-  }));
+  const audioData = useMemo(
+    () =>
+      last100.map((r) => ({
+        timestamp: safeISO(r.ts),
+        latency: r.audio_latency_ms || 0,
+        jitter: r.audio_jitter_ms || 0,
+        loss: (r.audio_packet_loss_rate || 0) * 10,
+      })),
+    [last100]
+  );
 
-  const systemData = last100.map((r) => ({
-    timestamp: new Date(r.ts).toISOString(),
-    cpu: r.cpu_pct || 0,
-    memory: r.mem_pct || 0,
-    procCpu: r.proc_cpu_pct || 0,
-  }));
+  const systemData = useMemo(
+    () =>
+      last100.map((r) => ({
+        timestamp: safeISO(r.ts),
+        cpu: r.cpu_pct || 0,
+        memory: r.mem_pct || 0,
+        procCpu: r.proc_cpu_pct || 0,
+      })),
+    [last100]
+  );
 
-  const queueData = last100.map((r) => ({
-    timestamp: new Date(r.ts).toISOString(),
-    tx: r.network_queue_tx || 0,
-    rx: r.network_queue_rx || 0,
-  }));
+  const queueData = useMemo(
+    () =>
+      last100.map((r) => ({
+        timestamp: safeISO(r.ts),
+        tx: r.network_queue_tx || 0,
+        rx: r.network_queue_rx || 0,
+      })),
+    [last100]
+  );
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -92,125 +133,37 @@ export const UdpMetrics = () => {
           <p className="text-muted-foreground">User Datagram Protocol – Real-time Transport</p>
         </div>
         <span className="ml-auto px-3 py-1 rounded-full bg-success/20 text-success text-sm font-medium">
-          {udpData.length} records
+          {udpData?.length ?? 0} records
         </span>
       </div>
 
       {/* Key Metrics Row 1 */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <MetricCard
-          label="Bitrate"
-          value={formatBitrate(latest?.bitrate_kbps)}
-          icon={Zap}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Throughput"
-          value={formatBitrate(latest?.throughput_kbps)}
-          icon={Activity}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Goodput"
-          value={formatBitrate(latest?.goodput_kbps)}
-          icon={Gauge}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Latency"
-          value={formatLatency(latest?.latency_ms_avg)}
-          icon={Clock}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Jitter"
-          value={formatLatency(latest?.jitter_ms_avg)}
-          icon={Activity}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Packet Loss"
-          value={formatPercentage(latest?.packet_loss_rate)}
-          icon={AlertTriangle}
-          protocol="udp"
-        />
+        <MetricCard label="Bitrate" value={formatBitrate(latest?.bitrate_kbps)} icon={Zap} protocol="udp" />
+        <MetricCard label="Throughput" value={formatBitrate(latest?.throughput_kbps)} icon={Activity} protocol="udp" />
+        <MetricCard label="Goodput" value={formatBitrate(latest?.goodput_kbps)} icon={Gauge} protocol="udp" />
+        <MetricCard label="Latency" value={formatLatency(latest?.latency_ms_avg)} icon={Clock} protocol="udp" />
+        <MetricCard label="Jitter" value={formatLatency(latest?.jitter_ms_avg)} icon={Activity} protocol="udp" />
+        <MetricCard label="Packet Loss" value={formatPercentage(latest?.packet_loss_rate)} icon={AlertTriangle} protocol="udp" />
       </div>
 
       {/* Key Metrics Row 2 */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <MetricCard
-          label="Encode Time"
-          value={formatLatency(latest?.encode_ms_avg)}
-          icon={Timer}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Decode Time"
-          value={formatLatency(latest?.decode_ms_avg)}
-          icon={Timer}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Reassembly"
-          value={formatLatency(latest?.reassembly_ms_avg)}
-          icon={Layers}
-          protocol="udp"
-        />
-        <MetricCard
-          label="MOS Score"
-          value={formatNumber(latest?.mos_score, 2)}
-          icon={Activity}
-          protocol="udp"
-        />
-        <MetricCard
-          label="PSNR"
-          value={formatNumber(latest?.psnr, 1)}
-          unit="dB"
-          icon={Activity}
-          protocol="udp"
-        />
-        <MetricCard
-          label="SSIM"
-          value={formatNumber(latest?.ssim, 3)}
-          icon={Activity}
-          protocol="udp"
-        />
+        <MetricCard label="Encode Time" value={formatLatency(latest?.encode_ms_avg)} icon={Timer} protocol="udp" />
+        <MetricCard label="Decode Time" value={formatLatency(latest?.decode_ms_avg)} icon={Timer} protocol="udp" />
+        <MetricCard label="Reassembly" value={formatLatency(latest?.reassembly_ms_avg)} icon={Layers} protocol="udp" />
+        <MetricCard label="MOS Score" value={formatNumber(latest?.mos_score, 2)} icon={Activity} protocol="udp" />
+        <MetricCard label="PSNR" value={formatNumber(latest?.psnr, 1)} unit="dB" icon={Activity} protocol="udp" />
+        <MetricCard label="SSIM" value={formatNumber(latest?.ssim, 3)} icon={Activity} protocol="udp" />
       </div>
 
       {/* Audio Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        <MetricCard
-          label="Audio Latency"
-          value={formatLatency(latest?.audio_latency_ms)}
-          icon={Volume2}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Audio Jitter"
-          value={formatLatency(latest?.audio_jitter_ms)}
-          icon={Volume2}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Audio Loss"
-          value={formatPercentage(latest?.audio_packet_loss_rate)}
-          icon={Volume2}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Audio Bitrate"
-          value={formatNumber(latest?.audio_bitrate, 0)}
-          unit="kbps"
-          icon={Volume2}
-          protocol="udp"
-        />
-        <MetricCard
-          label="Audio Levels"
-          value={formatNumber(latest?.audio_levels, 1)}
-          unit="dB"
-          icon={Volume2}
-          protocol="udp"
-        />
+        <MetricCard label="Audio Latency" value={formatLatency(latest?.audio_latency_ms)} icon={Volume2} protocol="udp" />
+        <MetricCard label="Audio Jitter" value={formatLatency(latest?.audio_jitter_ms)} icon={Volume2} protocol="udp" />
+        <MetricCard label="Audio Loss" value={formatPercentage(latest?.audio_packet_loss_rate)} icon={Volume2} protocol="udp" />
+        <MetricCard label="Audio Bitrate" value={formatNumber(latest?.audio_bitrate, 0)} unit="kbps" icon={Volume2} protocol="udp" />
+        <MetricCard label="Audio Levels" value={formatNumber(latest?.audio_levels, 1)} unit="dB" icon={Volume2} protocol="udp" />
       </div>
 
       {/* Charts Row 1 */}
