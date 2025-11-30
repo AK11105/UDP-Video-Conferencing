@@ -12,6 +12,33 @@ export default function App() {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
 
+  // -------------------------------------------------------------
+  // SEND CONTROL COMMAND TO PYTHON (via bridge)
+  // -------------------------------------------------------------
+  async function sendControl(cmd) {
+    if (!readyPort) {
+      console.warn("Local control port not ready");
+      return;
+    }
+
+    try {
+      await fetch("http://localhost:3001/api/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: cmd,
+          host: "127.0.0.1",
+          port: readyPort,
+        }),
+      });
+    } catch (err) {
+      console.error("Control error", err);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // INIT WEBSOCKET ONCE
+  // -------------------------------------------------------------
   useEffect(() => {
     console.log("[WS] Connecting → ws://localhost:3001/ws");
 
@@ -46,6 +73,9 @@ export default function App() {
     return () => socket.close();
   }, []);
 
+  // -------------------------------------------------------------
+  // JOIN BUTTON
+  // -------------------------------------------------------------
   async function handleJoin() {
     if (!serverIp.trim()) return;
 
@@ -79,6 +109,9 @@ export default function App() {
     }
   }
 
+  // -------------------------------------------------------------
+  // CALL UI
+  // -------------------------------------------------------------
   if (isConnected) {
     return (
       <div style={{ height: "100vh", background: "#111", color: "white" }}>
@@ -91,7 +124,6 @@ export default function App() {
               maxWidth: "90%",
               maxHeight: "70vh",
               borderRadius: 12,
-              background: "#000",
               display: "block",
               margin: "auto",
             }}
@@ -100,6 +132,7 @@ export default function App() {
           <p style={{ textAlign: "center" }}>Waiting for video…</p>
         )}
 
+        {/* CONTROL BUTTONS */}
         <div
           style={{
             position: "fixed",
@@ -111,8 +144,13 @@ export default function App() {
             gap: 20,
           }}
         >
+          {/* MIC BUTTON */}
           <button
-            onClick={() => setMicOn(!micOn)}
+            onClick={() => {
+              if (micOn) sendControl("MUTE");
+              else sendControl("UNMUTE");
+              setMicOn(!micOn);
+            }}
             style={{
               padding: 15,
               borderRadius: "50%",
@@ -124,8 +162,13 @@ export default function App() {
             {micOn ? "🎤" : "🔇"}
           </button>
 
+          {/* CAMERA BUTTON */}
           <button
-            onClick={() => setCamOn(!camOn)}
+            onClick={() => {
+              if (camOn) sendControl("VIDEO_OFF");
+              else sendControl("VIDEO_ON");
+              setCamOn(!camOn);
+            }}
             style={{
               padding: 15,
               borderRadius: "50%",
@@ -137,8 +180,10 @@ export default function App() {
             {camOn ? "📷" : "🚫📷"}
           </button>
 
+          {/* LEAVE BUTTON */}
           <button
             onClick={() => {
+              sendControl("BYE");
               setIsConnected(false);
               setMosaicFrame(null);
             }}
@@ -157,6 +202,9 @@ export default function App() {
     );
   }
 
+  // -------------------------------------------------------------
+  // JOIN SCREEN
+  // -------------------------------------------------------------
   return (
     <div style={{ padding: 40, fontFamily: "sans-serif", textAlign: "center" }}>
       <h1>Join Session</h1>

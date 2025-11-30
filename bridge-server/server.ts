@@ -42,6 +42,31 @@ app.post("/api/client/start", async (req, res) => {
   }
 });
 
+app.post("/api/control", (req, res) => {
+  const { command, host, port } = req.body;
+
+  if (!command || !port) {
+    return res.status(400).json({ error: "Invalid command" });
+  }
+
+  const dgram = require("dgram");
+  const sock = dgram.createSocket("udp4");
+
+  const msg = Buffer.from(command);
+  sock.send(msg, port, host, (err) => {
+    sock.close();
+
+    if (err) {
+      console.error("UDP send error", err);
+      return res.status(500).json({ success: false });
+    }
+
+    console.log("[CONTROL] Sent:", command, "→", host, port);
+    res.json({ success: true });
+  });
+});
+
+
 // ------------------------------
 // START SERVER
 // ------------------------------
