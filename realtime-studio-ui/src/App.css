@@ -1,0 +1,15 @@
+/* App-specific styles - Design system is in index.css */
+
+/* Remove default max-width for full-screen app */
+#root {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+/* Ensure full height */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
